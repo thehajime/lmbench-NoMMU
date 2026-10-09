@@ -24,16 +24,19 @@ char	*id = "$Id$\n";
 #define STATIC_PREFIX ""
 #endif
 
-#ifdef CONFIG_NOMMU
-#define fork() vfork()
-#endif
-
 void do_shell(iter_t iterations, void* cookie);
 void do_forkexec(iter_t iterations,void* cookie);
 void do_fork(iter_t iterations, void* cookie);
 void do_procedure(iter_t iterations, void* cookie);
 
 pid_t child_pid;
+
+#ifdef CONFIG_NOMMU
+static int use_vfork = 1;
+#else
+static int use_vfork = 0;
+#endif
+#define process_create() (use_vfork ? vfork() : fork())
 
 
 void
@@ -55,9 +58,19 @@ main(int ac, char **av)
 	int warmup = 0;
 	int repetitions = -1;
 	int c;
-	char* usage = "[-P <parallelism>] [-W <warmup>] [-N <repetitions>] procedure|fork|exec|shell\n";
+	int process_option = 0;
+	char* usage = "[-f|--fork | -v|--vfork] [-P <parallelism>] [-W <warmup>] [-N <repetitions>] procedure|fork|exec|shell\n";
+	int i;
 
-	while (( c = getopt(ac, av, "P:W:N:")) != EOF) {
+	for (i = 1; i < ac; i++) {
+		if (!strcmp(av[i], "--fork")) {
+			av[i] = "-f";
+		} else if (!strcmp(av[i], "--vfork")) {
+			av[i] = "-v";
+		}
+	}
+
+	while (( c = getopt(ac, av, "P:W:N:fv")) != EOF) {
 		switch(c) {
 		case 'P':
 			parallel = atoi(optarg);
@@ -68,6 +81,16 @@ main(int ac, char **av)
 			break;
 		case 'N':
 			repetitions = atoi(optarg);
+			break;
+		case 'f':
+			if (process_option && use_vfork) lmbench_usage(ac, av, usage);
+			use_vfork = 0;
+			process_option = 1;
+			break;
+		case 'v':
+			if (process_option && !use_vfork) lmbench_usage(ac, av, usage);
+			use_vfork = 1;
+			process_option = 1;
 			break;
 		default:
 			lmbench_usage(ac, av, usage);
@@ -107,20 +130,17 @@ do_shell(iter_t iterations, void* cookie)
 	signal(SIGCHLD, SIG_DFL);
 	handle_scheduler(benchmp_childid(), 0, 1);
 	while (iterations-- > 0) {
-		switch (child_pid = fork()) {
+		switch (child_pid = process_create()) {
 		case -1:
-			perror("fork");
+			perror(use_vfork ? "vfork" : "fork");
 			exit(1);
 	    
 		case 0:	/* child */
-			handle_scheduler(benchmp_childid(), 1, 1);
+			if (!use_vfork) handle_scheduler(benchmp_childid(), 1, 1);
 			close(1);
 			execlp("/bin/sh", "sh", "-c", PROG, 0);
-#ifdef CONFIG_NOMMU
-			_exit(1);
-#else
+			if (use_vfork) _exit(1);
 			exit(1);
-#endif
 
 		default:
 			waitpid(child_pid, NULL,0);
@@ -139,20 +159,17 @@ do_forkexec(iter_t iterations, void* cookie)
 	while (iterations-- > 0) {
 		nav[0] = PROG;
 		nav[1] = 0;
-		switch (child_pid = fork()) {
+		switch (child_pid = process_create()) {
 		case -1:
-			perror("fork");
+			perror(use_vfork ? "vfork" : "fork");
 			exit(1);
 
 		case 0: 	/* child */
-			handle_scheduler(benchmp_childid(), 1, 1);
+			if (!use_vfork) handle_scheduler(benchmp_childid(), 1, 1);
 			close(1);
 			execve(PROG, nav, 0);
-#ifdef CONFIG_NOMMU
-			_exit(1);
-#else
+			if (use_vfork) _exit(1);
 			exit(1);
-#endif
 
 		default:
 			waitpid(child_pid, NULL,0);
@@ -167,18 +184,15 @@ do_fork(iter_t iterations, void* cookie)
 	signal(SIGCHLD, SIG_DFL);
 	handle_scheduler(benchmp_childid(), 0, 1);
 	while (iterations-- > 0) {
-		switch (child_pid = fork()) {
+		switch (child_pid = process_create()) {
 		case -1:
-			perror("fork");
+			perror(use_vfork ? "vfork" : "fork");
 			exit(1);
 	
 		case 0:	/* child */
+			if (use_vfork) _exit(1);
 			handle_scheduler(benchmp_childid(), 1, 1);
-#ifdef CONFIG_NOMMU
-			_exit(1);
-#else
 			exit(1);
-#endif
 	
 		default:
 			waitpid(child_pid, NULL,0);

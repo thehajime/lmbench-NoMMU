@@ -16,6 +16,12 @@
 #define	 _LIB /* bench.h needs this */
 #include "bench.h"
 
+#ifdef CONFIG_NOMMU
+#define benchmp_exit(status) _exit(status)
+#else
+#define benchmp_exit(status) exit(status)
+#endif
+
 /* #define _DEBUG */
 
 #define	nz(x)	((x) == 0 ? 1 : (x))
@@ -638,7 +644,7 @@ benchmp_child_sigchld(int signo)
 		signal(SIGCHLD, SIG_DFL);
 		(*_benchmp_child_state.cleanup)(0, &_benchmp_child_state);
 	}
-	exit(1);
+	benchmp_exit(1);
 }
 
 void
@@ -652,7 +658,7 @@ benchmp_child_sigterm(int signo)
 		}
 		(*_benchmp_child_state.cleanup)(0, &_benchmp_child_state);
 	}
-	exit(0);
+	benchmp_exit(0);
 }
 
 void*
@@ -760,7 +766,7 @@ benchmp_interval(void* _state)
 		if (benchmp_sigchld_handler == SIG_DFL)
 			signal(SIGCHLD, SIG_DFL);
 		(*state->cleanup)(0, state->cookie);
-		exit(0);
+		benchmp_exit(0);
 	}
 
 	timeout.tv_sec = 0;
@@ -836,7 +842,7 @@ benchmp_interval(void* _state)
 
 			/* Now wait for signal to exit */
 			read(state->exit_signal, (void*)&c, sizeof(char));
-			exit(0);
+			benchmp_exit(0);
 		}
 	};
 	if (state->initialize) {
